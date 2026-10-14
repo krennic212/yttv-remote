@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>YouTube TV Remote</title>
+<style>body{margin:0;padding:16px;background:#0c0c0e;color:#f5f5f5;font:16px/1.4 system-ui,sans-serif}h1{margin:0 0 12px;font-size:22px}button,select{width:100%;min-height:44px;margin-top:8px;border:0;border-radius:10px;background:#222226;color:#fff;font:inherit}button.primary{background:#ff0033;font-weight:700}.pane{margin-top:14px;padding:12px;border-radius:12px;background:#17171a}.row{display:grid;grid-template-columns:1fr 1fr;gap:8px}p{color:#9a9aa3}</style>
+</head>
+<body>
+<h1>Multi-view remote</h1>
+<p id="status">Connecting…</p>
+<div id="layouts"></div>
+<div id="panes"></div>
+<script>
+const room=new URLSearchParams(location.search).get("room");
+const statusEl=document.querySelector("#status");
+const topic=`https://ntfy.sh/yttv-mv-${room}`;
+function send(body){return fetch(topic,{method:"POST",body:JSON.stringify(body)});}
+async function games(){const response=await fetch("https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard");const data=await response.json();return (data.events||[]).map(event=>{const competition=event.competitions?.[0]||{};const teams=(competition.competitors||[]).map(side=>side.team?.abbreviation).filter(Boolean);const possessionId=competition.situation?.possession;const possession=(competition.competitors||[]).find(side=>side.team?.id===possessionId)?.team?.abbreviation||"";return {name:event.shortName||event.name||teams.join(" @ "),teams,possession};});}
+function render(state,live){const layouts=document.querySelector("#layouts");layouts.replaceChildren();for(const id of state.layouts||[]){const button=document.createElement("button");button.textContent=id;button.addEventListener("click",()=>send({layout:id}));layouts.append(button);}const panes=document.querySelector("#panes");panes.replaceChildren();for(const pane of state.panes||[]){const card=document.createElement("section");card.className="pane";const title=document.createElement("strong");title.textContent=pane.label||`Pane ${pane.rank}`;const select=document.createElement("select");const blank=document.createElement("option");blank.value="";blank.textContent="Label this game";select.append(blank);for(const game of live){const option=document.createElement("option");option.value=game.name;option.textContent=game.name;option.dataset.game=JSON.stringify(game);select.append(option);}select.addEventListener("change",()=>{const chosen=[...select.options].find(option=>option.value===select.value);const game=chosen?.dataset.game?JSON.parse(chosen.dataset.game):null;send({game:{slot:pane.slot,...(game||{name:""})}});});const row=document.createElement("div");row.className="row";const sound=document.createElement("button");sound.textContent="Sound";sound.addEventListener("click",()=>send({audio:pane.slot}));const fit=document.createElement("button");fit.textContent="Fit";fit.addEventListener("click",()=>send({fit:pane.slot}));const big=document.createElement("button");big.textContent="Make big";big.addEventListener("click",()=>send({big:pane.slot}));const fill=document.createElement("button");fill.className="primary";fill.textContent="Fill screen";fill.addEventListener("click",()=>send({focus:Number(pane.rank)-1}));row.append(sound,fit,big,fill);card.append(title,select,row);panes.append(card);}}
+if(!room){statusEl.textContent="Missing room. Scan the QR from the layout menu.";}else{games().then(live=>{const source=new EventSource(`${topic}/sse`);source.addEventListener("message",event=>{const payload=JSON.parse(event.data);const body=JSON.parse(payload.message||"{}");if(body.type==="state"){statusEl.textContent="Connected. Changes apply on the TV.";render(body,live);}});send({type:"hello"});}).catch(()=>{statusEl.textContent="Could not load live games.";});}
+</script>
+</body>
+</html>
